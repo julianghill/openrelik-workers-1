@@ -256,7 +256,7 @@ wheels = [
 
 [[package]]
 name = "openrelik-worker-grep"
-version = "2025.1.21"
+version = "0.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },

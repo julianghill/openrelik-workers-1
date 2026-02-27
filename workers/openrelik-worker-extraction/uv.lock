@@ -698,7 +698,7 @@ redis = [
 
 [[package]]
 name = "openrelik-common"
-version = "0.7.6"
+version = "0.7.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "billiard" },
@@ -710,9 +710,9 @@ dependencies = [
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "structlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d8/ee/164e02f5d0aecbd5a0dd868c6e51a052ca9fd6c9b609900ccfd5e586d57d/openrelik_common-0.7.6.tar.gz", hash = "sha256:ce499fb35754a29fa13436cebd263cb45e35c308fb94da10411fef6659c54eb9", size = 7827, upload-time = "2026-02-01T10:06:05.718Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/00/c7361d6919a571373f03a31cc339c4177e2f8c41d8272b4a9fc2a146e7b6/openrelik_common-0.7.7.tar.gz", hash = "sha256:c75fa4ce5a1f49a22e087fc4bf04e3373c77f782413372a3be9a6288df47d0b2", size = 7977, upload-time = "2026-02-26T12:51:13.597Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/14/8761cec006d85c6e5be600b8ecbdaac20011ec0220bb6bd947820d307404/openrelik_common-0.7.6-py3-none-any.whl", hash = "sha256:4b10dde8d62c54380e0beea94d9594f2bf9d52d02fd14f7328cd42e3beb4f480", size = 9143, upload-time = "2026-02-01T10:06:04.175Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/8b/ef7be9c95ac6751c37c019cab2564fd2ac24f7e3f6dacc9c59ef2ce13eee/openrelik_common-0.7.7-py3-none-any.whl", hash = "sha256:60c4b9c46a88529975077deb82ce7cdcbce5347e6d5ba0e7ef5ab1a2f790f13e", size = 9316, upload-time = "2026-02-26T12:51:12.058Z" },
 ]
 
 [[package]]
@@ -731,7 +731,7 @@ wheels = [
 
 [[package]]
 name = "openrelik-worker-extraction"
-version = "0.4.0"
+version = "0.5.0"
 source = { virtual = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },
@@ -750,8 +750,8 @@ test = [
 requires-dist = [
     { name = "celery", extras = ["redis"], specifier = ">=5.4.0,<6.0.0" },
     { name = "debugpy", specifier = ">=1.8.7,<2.0.0" },
-    { name = "openrelik-common", specifier = ">=0.7.0,<1.0.0" },
-    { name = "openrelik-worker-common", specifier = ">=0.16.0,<1.0.0" },
+    { name = "openrelik-common", specifier = ">=0.7.7,<1.0.0" },
+    { name = "openrelik-worker-common", specifier = ">=0.17.1,<1.0.0" },
 ]
 
 [package.metadata.requires-dev]
