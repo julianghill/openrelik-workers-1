@@ -98,6 +98,33 @@ class YaraMatch:
     score: int
 
 
+def validate_scan_target(path: str, display_name: str = "input") -> None:
+    """Reject scan targets that would silently scan the worker container."""
+    if not path:
+        raise RuntimeError("Input file path is empty.")
+    if os.path.abspath(path) == os.path.sep:
+        raise RuntimeError(
+            "Refusing to scan filesystem root as Yara input. "
+            "Select a file or folder input instead."
+        )
+    if not os.path.exists(path):
+        raise RuntimeError(f"Input path does not exist: {path}")
+    if not os.path.isfile(path) and not os.path.isdir(path):
+        raise RuntimeError(
+            f"Unsupported Yara scan target: {display_name}. "
+            "The Yara worker can scan regular files and directories. "
+            "Disk images must be mounted before scanning."
+        )
+
+
+def send_progress(task, status: str, progress: str | None = None) -> None:
+    """Send task progress text for the OpenRelik UI."""
+    data = {"status": status}
+    if progress:
+        data["progress"] = progress
+    task.send_event("task-progress", data=data)
+
+
 def cleanup_fraken_output_log(logfile: OutputFile) -> None:
     """Cleanup fraken-x output to be one entry per line.
 
@@ -195,6 +222,7 @@ def command(
     telemetry.add_attribute_to_current_span("workflow_id", workflow_id)
 
     output_files = []
+    task_files = []
 
     all_patterns = ""
     global_yara = task_config.get("Global Yara rules", "")
@@ -253,9 +281,17 @@ def command(
     fraken_output = create_output_file(
         output_path, display_name="fraken_out.jsonl", data_type="yara:yara-scan:jsonl"
     )
+    fraken_stderr = create_output_file(
+        output_path,
+        display_name="fraken_stderr.log",
+        data_type="yara:yara-scan:log",
+    )
     output_files.append(fraken_output.to_dict())
+    task_files.append(fraken_stderr.to_dict())
 
-    input_files = get_input_files(pipe_result, input_files)
+    input_files = get_input_files(pipe_result, input_files or [])
+    if not input_files:
+        raise RuntimeError("No input files were provided to Yara scan.")
 
     input_files_map = {}
     for input_file in input_files:
@@ -275,37 +311,88 @@ def command(
                 continue
 
             input_file_path = input_file.get("path")
+            display_name = input_file.get("display_name", input_file_path)
+            validate_scan_target(input_file_path, display_name)
+
             # Check if disk image, mount and add mountpoints to scan
-            if mount_disk_images and is_disk_image(input_file):
-                bd = BlockDevice(input_file_path, min_partition_size=1)
-                bd.setup()
-                mountpoints = bd.mount()
-                disks_mounted.append(bd)
+            if is_disk_image(input_file):
+                if not mount_disk_images:
+                    raise RuntimeError(
+                        "Disk image input is not supported in regular scan mode: "
+                        f"{display_name}. Enable mount_disk_images to scan files "
+                        "inside supported disk image filesystems."
+                    )
+
+                try:
+                    send_progress(self, "Mounting disk image", display_name)
+                    bd = BlockDevice(input_file_path, min_partition_size=1)
+                    bd.setup()
+                    disks_mounted.append(bd)
+                    mountpoints = bd.mount()
+                    send_progress(
+                        self,
+                        "Mounted disk image",
+                        f"{display_name}: {len(mountpoints)} mountpoint(s)",
+                    )
+                except RuntimeError as e:
+                    logger.error(
+                        "Error mounting disk image %s (%s): %s",
+                        display_name,
+                        input_file_path,
+                        str(e),
+                    )
+                    raise RuntimeError(
+                        "Disk image input is not supported or could not be "
+                        f"mounted by the Yara worker: {display_name}."
+                    ) from None
 
                 if not mountpoints:
-                    logger.info(
-                        "No mountpoints returned for input file %s",
-                        input_file.get("display_name"),
+                    raise RuntimeError(
+                        "No mountpoints returned for input file "
+                        f"{input_file.get('display_name')}"
                     )
                 for mountpoint in mountpoints:
+                    validate_scan_target(mountpoint, display_name)
                     folders_and_files.append("--folder")
                     folders_and_files.append(mountpoint)
             else:
                 folders_and_files.append("--folder")
                 folders_and_files.append(input_file_path)
 
+        if not folders_and_files:
+            raise RuntimeError("No scan targets were produced from input files.")
+
         cmd = ["fraken"] + folders_and_files + [f"{all_yara.path}"]
+        logger.info(
+            "fraken-x scan targets: %s",
+            folders_and_files[1::2],
+        )
         logger.debug(f"fraken-x command: {cmd}")
-        with open(fraken_output.path, "w+", encoding="utf-8") as log:
-            self.send_event("task-progress")
-            process = subprocess.Popen(cmd, stdout=log, stderr=subprocess.PIPE)
-            process.wait()
-            if process.stderr:
-                # Note: fraken-x uses the eprintln! Rust macro to print progress,
-                #       this outputs to stderr....
-                logger.info(f"fraken-x: {process.stderr.readlines()}")
+        with (
+            open(fraken_output.path, "w+", encoding="utf-8") as log,
+            open(fraken_stderr.path, "w+", encoding="utf-8") as stderr_log,
+        ):
+            send_progress(self, "Running Yara scan")
+            process = subprocess.run(
+                cmd,
+                stdout=log,
+                stderr=stderr_log,
+                check=False,
+                text=True,
+            )
+
+        if os.path.getsize(fraken_stderr.path) > 0:
+            logger.info(f"fraken-x stderr written to {fraken_stderr.path}")
+
+        if process.returncode != 0:
+            raise RuntimeError(
+                "An error occurred while running fraken-x. "
+                f"Exit code: {process.returncode}. "
+                f"See stderr log for details: {fraken_stderr.path}"
+            )
     except RuntimeError as e:
         logger.error("Error encountered: %s", str(e))
+        raise
     finally:
         for blockdevice in disks_mounted:
             if blockdevice:
@@ -347,6 +434,7 @@ def command(
 
     return create_task_result(
         output_files=output_files,
+        task_files=task_files,
         workflow_id=workflow_id,
         command="fraken",
         task_report=report.to_dict(),
